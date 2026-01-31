@@ -5,7 +5,7 @@ This project transforms an ESP32 and a HUB75 LED Matrix into a Wi-Fi-enabled dig
 
     Controller: ESP32 (38-pin DevKit recommended).
 
-    Display: 3x 64x64 HUB75 LED Panels (192x64 total resolution).
+    Display: 64x64 HUB75 LED Panels tested up to 3x (192x64 total resolution).
 
     Power: 5V High-Current Supply (minimum 10A recommended for 3 panels).
 
@@ -54,12 +54,13 @@ This project transforms an ESP32 and a HUB75 LED Matrix into a Wi-Fi-enabled dig
 
     Navigate: Open http://192.168.42.1 in any web browser.
 
-    Upload: Choose a GIF. Note: For 3 panels, GIFs should ideally be 192x64 pixels.
+    Upload: Choose a GIF. Note: For each panel can do up to 64x64, for 3 panels GIFs should ideally be 192x64 pixels.
+    You can use a tool like ezgif to create or resize files. https://ezgif.com/resize
 
     Diagnostics: If the web page feels laggy, check the Diagnostics page. High "RAM Pressure" (above 80%) may indicate the GIF file size is too large for the ESP32 to handle comfortably.
 
 ⚠️ Troubleshooting
 
-    Hanging on Upload: This is often a power issue. Reduce brightness to 10% and try again. If it works, your power supply is sagging during Wi-Fi transmission.
+    Hanging or breaking on Upload: This is often a power issue. Reduce brightness to 10% and try again or make the first gif blank for lowest power draw. 
 
     Ghosting/Leftover Pixels: The code is designed to clearScreen() only when switching files. If a GIF has a transparent background, it may leave trails; ensure your GIFs have a solid background for best results.
