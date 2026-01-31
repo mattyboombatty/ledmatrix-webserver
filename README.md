@@ -8,12 +8,14 @@ This project transforms an ESP32 and a HUB75 LED Matrix into a Wi-Fi-enabled dig
     Display: 3x 64x64 HUB75 LED Panels (192x64 total resolution).
 
     Power: 5V High-Current Supply (minimum 10A recommended for 3 panels).
-
-ESP32 Pin	HUB75 Pin	Function
-GPIO 26, 27, 25	R1, G1, B1	Upper RGB Data
-GPIO 12, 13, 14	R2, G2, B2	Lower RGB Data
-GPIO 23, 19, 5, 17, 32	A, B, C, D, E	Row Address Lines
-GPIO 4, 15, 16	LAT, OE, CLK	Control Lines
++-------------------------+-----------------+--------------------+
+| ESP32 Pin               | HUB75 Pin       | Function           |
++-------------------------+-----------------+--------------------+
+| GPIO 26, 27, 25         | R1, G1, B1      | Upper RGB Data     |
+| GPIO 12, 13, 14         | R2, G2, B2      | Lower RGB Data     |
+| GPIO 23, 19, 5, 17, 32  | A, B, C, D, E   | Row Address Lines  |
+| GPIO 4, 15, 16          | LAT, OE, CLK    | Control Lines      |
++-------------------------+-----------------+--------------------+
 🌐 Web Interface Features
 
     Dashboard: View "Now Playing" status and adjust brightness via synced slider/number inputs.
