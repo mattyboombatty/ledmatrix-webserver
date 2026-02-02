@@ -1,4 +1,3 @@
-This is looking great! I’ve reorganized the features to highlight the "Smart Playback" logic and the new synced control inputs. I also added a section for the WiFi manager so users know they don't have to hardcode their credentials anymore.
 🚀 ESP32 GIF Matrix Controller
 
 This project transforms an ESP32 and a HUB75 LED Matrix into a Wi-Fi-enabled digital signage platform. It features a modern web dashboard for wireless GIF uploads, file management, and real-time matrix control.
@@ -8,7 +7,30 @@ This project transforms an ESP32 and a HUB75 LED Matrix into a Wi-Fi-enabled dig
 
     Display: 64x64 HUB75 LED Panels.
 
-    Power: 5V High-Current Supply (minimum 10A recommended for 3 panels).
+     Power: 5V High-Current Supply (minimum 10A recommended for 3 panels).
+
+
+   
+This is the Pinout I'm using for my panel, it may be different for your board.
+```
+
++-------------------------+-----------------+--------------------+
+
+| ESP32 Pin               | HUB75 Pin       | Function           |
+
++-------------------------+-----------------+--------------------+
+
+| GPIO 26, 27, 25         | R1, G1, B1      | Upper RGB Data     |
+
+| GPIO 12, 13, 14         | R2, G2, B2      | Lower RGB Data     |
+
+| GPIO 23, 19, 5, 17, 32  | A, B, C, D, E   | Row Address Lines  |
+
+| GPIO 4, 15, 16          | LAT, OE, CLK    | Control Lines      |
+
++-------------------------+-----------------+--------------------+
+
+``` 
 
 🌐 Web Interface & Features
 Dashboard & Real-time Controls
@@ -25,7 +47,7 @@ File & WiFi Management
 
     Smart Uploads: Direct upload via the dashboard with an automatic redirect to your file gallery upon completion.
 
-    WiFi Manager: No more hardcoding passwords! Use the Settings page to scan for networks, save credentials to the ESP32's permanent memory (NVS), and reconnect automatically.
+    WiFi Manager: Add credentials to connect to your home network under the settings page.
 
 Diagnostics
 
