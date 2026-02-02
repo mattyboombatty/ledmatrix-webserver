@@ -4,6 +4,7 @@
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <Preferences.h>
 
 /* --- CONFIGURATION --- */
 #define FILESYSTEM LittleFS
@@ -14,46 +15,38 @@
 
 const char* ap_ssid = "Matrix-Sign-AP";
 const char* ap_password = "Password1";
-const char* sta_ssid = "your_ssid";
-const char* sta_password = "YourPassword";
 
 /* --- GLOBAL OBJECTS --- */
 WebServer server(80);
+Preferences prefs;
 MatrixPanel_I2S_DMA *dma_display = nullptr;
 AnimatedGIF gif;
 File f;
-File root;
 
 /* --- STATE VARIABLES --- */
 String currentPlayingFile = "";
 String uploadedFilePath = "";
 bool newFileUploaded = false;
 bool playAllMode = true; 
-int currentBrightness = 180;
+int currentBrightness = 3;  
+int loopCount = 0;
+int maxLoops = 1;           
 int x_offset, y_offset;
-unsigned long lastPlaybackChange = 0;
-unsigned long playbackDuration = 15000; 
 
 /* --- GIF CALLBACKS --- */
 void GIFDraw(GIFDRAW *pDraw) {
-  uint8_t *s;
-  uint16_t *usPalette;
-  int x, y, iWidth;
+  uint8_t *s; uint16_t *usPalette; int x, y, iWidth;
   iWidth = pDraw->iWidth;
   if (iWidth > dma_display->width()) iWidth = dma_display->width();
   usPalette = pDraw->pPalette;
   y = pDraw->iY + pDraw->y + y_offset; 
   s = pDraw->pPixels;
   if (pDraw->ucDisposalMethod == 2) {
-    for (x=0; x<iWidth; x++) {
-      if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground;
-    }
+    for (x=0; x<iWidth; x++) { if (s[x] == pDraw->ucTransparent) s[x] = pDraw->ucBackground; }
   }
   if (pDraw->ucHasTransparency) {
     uint8_t ucTransparent = pDraw->ucTransparent;
-    for (x = 0; x < iWidth; x++) {
-      if (s[x] != ucTransparent) dma_display->drawPixel(pDraw->iX + x + x_offset, y, usPalette[s[x]]);
-    }
+    for (x = 0; x < iWidth; x++) { if (s[x] != ucTransparent) dma_display->drawPixel(pDraw->iX + x + x_offset, y, usPalette[s[x]]); }
   } else {
     for (x=0; x<iWidth; x++) dma_display->drawPixel(pDraw->iX + x + x_offset, y, usPalette[*s++]);
   }
@@ -65,10 +58,7 @@ void * GIFOpenFile(const char *fname, int32_t *pSize) {
   return NULL;
 }
 
-void GIFCloseFile(void *pHandle) {
-  File *f_ptr = static_cast<File *>(pHandle);
-  if (f_ptr != NULL) f_ptr->close();
-}
+void GIFCloseFile(void *pHandle) { File *f_ptr = static_cast<File *>(pHandle); if (f_ptr != NULL) f_ptr->close(); }
 
 int32_t GIFReadFile(GIFFILE *pFile, uint8_t *pBuf, int32_t iLen) {
     int32_t iBytesRead = iLen;
@@ -95,16 +85,14 @@ void ShowGIF(const char *name) {
     x_offset = max(0, (int)(dma_display->width() - gif.getCanvasWidth())/2);
     y_offset = max(0, (int)(dma_display->height() - gif.getCanvasHeight())/2);
     currentPlayingFile = name;
-    lastPlaybackChange = millis();
+    loopCount = 0;
   }
 }
 
 void playNextFile() {
-  File nextFile = root.openNextFile();
-  if (!nextFile) { 
-    root.rewindDirectory(); 
-    nextFile = root.openNextFile(); 
-  }
+  File r = LittleFS.open("/");
+  File nextFile = r.openNextFile();
+  if (!nextFile) { r.rewindDirectory(); nextFile = r.openNextFile(); }
   if (nextFile) {
     String path = "/" + String(nextFile.name());
     nextFile.close();
@@ -114,84 +102,105 @@ void playNextFile() {
 
 /* --- WEB SERVER HANDLERS --- */
 void handleRoot() {
-  String status = playAllMode ? "Auto-Playlist" : "Single Loop";
   String fileName = currentPlayingFile.length() > 1 ? currentPlayingFile.substring(1) : "None";
+  String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<style>:root{--p:#0f8;--b:#121212;--c:#1e1e1e;}body{font-family:sans-serif;background:var(--b);color:#fff;padding:20px;display:flex;flex-direction:column;align-items:center;}";
+  html += ".con{width:100%;max-width:400px;}.card{background:var(--c);padding:20px;border-radius:15px;margin-bottom:15px;border:1px solid #333;}";
+  html += "h1{color:var(--p);text-align:center;}.sl{color:#888;font-size:0.8rem;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;}";
+  html += ".num-in{background:#333;border:1px solid #444;color:var(--p);width:50px;text-align:center;border-radius:5px;font-weight:bold;padding:4px;}";
+  html += ".cf{font-size:1.2rem;color:var(--p);font-weight:bold;margin:10px 0;}";
+  html += ".bg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:15px;}a,button{background:#333;color:#fff;text-decoration:none;padding:12px;border-radius:8px;border:none;text-align:center;font-weight:bold;}";
+  html += ".bp{background:var(--p);color:#000;}input[type='range']{width:100%;accent-color:var(--p);margin:10px 0;}</style></head><body>";
   
-  String html = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
-    "<style>body{font-family:sans-serif;background:#1a1a1a;color:#eee;text-align:center;padding:20px;}"
-    ".card{background:#333;padding:15px;border-radius:10px;margin:10px 0;border-bottom:4px solid #0f0;}"
-    "a{color:#0f0;text-decoration:none;font-weight:bold;padding:12px;display:inline-block; border:1px solid #444; border-radius:5px; margin:5px;}"
-    "input[type='range']{width:80%; margin:20px 0;}"
-    "input[type='number']{background:#333; color:#0f0; border:1px solid #555; padding:5px; border-radius:5px; width:60px; font-size:1.1em;}"
-    "</style></head><body>"
-    "<h1>Matrix Dash</h1>"
-    "<div class='card'><strong>NOW PLAYING:</strong><br><span style='font-size:1.2em;'>" + fileName + "</span><br><small>" + status + "</small></div>"
-    "<div><a href='/list'>Manage Files</a><a href='/diag'>Diagnostics</a></div>"
-    "<form method='POST' action='/upload' enctype='multipart/form-data' style='margin-top:20px;'>"
-    "<input type='file' name='file'><br><br><input type='submit' value='Upload GIF' style='background:#0f0; border:none; padding:10px 20px; border-radius:5px; cursor:pointer; font-weight:bold;'>"
-    "</form>"
-    "<div class='card'><h3>Brightness Control</h3>"
-    "<input type='range' id='s' min='0' max='255' value='"+String(currentBrightness)+"' oninput='updateB(this.value)'>"
-    "<br><input type='number' id='n' min='0' max='255' value='"+String(currentBrightness)+"' oninput='updateB(this.value)'>"
-    "</div>"
-    "<script>function updateB(v){document.getElementById(\"s\").value=v;document.getElementById(\"n\").value=v;fetch(\"/brightness?value=\"+v);}</script>"
-    "</body></html>";
+  html += "<div class='con'><h1>Matrix Dash</h1>";
+  
+  // Now Playing Card
+  html += "<div class='card'><div class='sl'><span>Now Playing</span></div><div class='cf'>" + fileName + "</div>";
+  html += "<div class='bg'><a href='/list'>Files</a><a href='/diag'>Settings</a></div></div>";
+  
+  // Controls Card
+  html += "<div class='card'>";
+  html += "<div class='sl'><span>Brightness</span><input type='number' id='bn' class='num-in' value='" + String(currentBrightness) + "' oninput='sync(this,\"bs\",\"/brightness\")'></div>";
+  html += "<input type='range' id='bs' min='0' max='255' value='" + String(currentBrightness) + "' oninput='sync(this,\"bn\",\"/brightness\")'>";
+  
+  html += "<div class='sl' style='margin-top:10px;'><span>Loops Per GIF</span><input type='number' id='ln' class='num-in' value='" + String(maxLoops) + "' oninput='sync(this,\"ls\",\"/loops\")'></div>";
+  html += "<input type='range' id='ls' min='1' max='20' value='" + String(maxLoops) + "' oninput='sync(this,\"ln\",\"/loops\")'></div>";
+  
+  // Upload Card
+  html += "<div class='card' style='text-align:center'><form method='POST' action='/upload' enctype='multipart/form-data'><label style='cursor:pointer;color:var(--p);'><strong>+ Upload GIF</strong>";
+  html += "<input type='file' name='upload' style='display:none' onchange='this.form.submit()'></label></form></div>";
+  
+  html += "<button onclick='location.href=\"/playall\"' class='bp' style='width:100%'>Auto-Playlist</button></div>";
+  
+  // Sync Script
+  html += "<script>function sync(el,targetId,route){const val=el.value;document.getElementById(targetId).value=val;fetch(route+'?value='+val);}</script></body></html>";
+  
   server.send(200, "text/html", html);
 }
 
 void handleDiag() {
-  uint32_t freeRAM = ESP.getFreeHeap();
-  uint32_t totalRAM = ESP.getHeapSize();
-  float ramPressure = 100.0 - ((float)freeRAM / totalRAM * 100.0);
+  uint32_t totalBytes = LittleFS.totalBytes();
+  uint32_t usedBytes = LittleFS.usedBytes();
+  float usagePct = (totalBytes > 0) ? ((float)usedBytes / (float)totalBytes) * 100.0 : 0;
+
+  String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{background:#000;color:#0f0;font-family:monospace;padding:20px;}";
+  html += "input{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:90%;margin:5px 0;}button{background:#0f0;color:#000;padding:10px;border:none;font-weight:bold;width:95%;cursor:pointer;margin-top:10px;}";
+  html += ".bb{background:#222;height:12px;width:100%;margin:8px 0;}.bf{background:#007bff;height:100%;}</style></head><body>";
+  html += "<h2>SYSTEM & WIFI</h2><hr>";
+  html += "Storage: " + String(usedBytes/1024) + "KB / " + String(totalBytes/1024) + "KB";
+  html += "<div class='bb'><div class='bf' style='width:" + String(usagePct) + "%'></div></div>";
+  html += "<p>WiFi: " + WiFi.SSID() + " (" + String(WiFi.RSSI()) + "dBm)</p>";
   
-  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><style>body{background:#000;color:#0f0;font-family:monospace;padding:20px;} a{color:#fff;}</style></head><body>"
-    "<h2>SYSTEM STATS</h2><hr>"
-    "WiFi Signal: " + String(WiFi.RSSI()) + " dBm<br>"
-    "RAM Pressure: " + String(ramPressure, 1) + "%<br>"
-    "Free Heap: " + String(freeRAM/1024) + " KB<br>"
-    "Storage Used: " + String(LittleFS.usedBytes()/1024) + " KB<br>"
-    "Uptime: " + String(millis()/60000) + " min<br><br>"
-    "<a href='/'>[ Back to Dash ]</a>"
-    "<script>setTimeout(function(){location.reload();}, 3000);</script></body></html>";
+  html += "<div style='background:#111;padding:15px;border:1px solid #333;'><h3>Update WiFi</h3><form action='/setwifi' method='POST'>";
+  html += "SSID:<br><input name='s' type='text'><br>Pass:<br><input name='p' type='password'><br><button type='submit'>Save & Connect</button></form></div>";
+  
+  html += "<button onclick='if(confirm(\"Restart?\"))fetch(\"/reboot\")' style='background:#f44;color:#fff;'>Restart Device</button>";
+  html += "<br><br><a href='/' style='color:#fff;'>&larr; Back to Dash</a></body></html>";
   server.send(200, "text/html", html);
 }
 
+void handleSetWiFi() {
+  if (server.hasArg("s") && server.hasArg("p")) {
+    prefs.begin("wifi", false);
+    prefs.putString("ssid", server.arg("s"));
+    prefs.putString("pass", server.arg("p"));
+    prefs.end();
+    server.send(200, "text/plain", "WiFi Saved. Rebooting...");
+    delay(2000);
+    ESP.restart();
+  }
+}
+
+void handleReboot() { server.send(200); delay(1000); ESP.restart(); }
+
 void handleFileList() {
-  String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{font-family:sans-serif;background:#222;color:#fff;text-align:center;} li{background:#333;margin:5px;padding:10px;list-style:none;display:flex;justify-content:space-between;align-items:center;} a{text-decoration:none; padding:5px 10px; border-radius:4px;}</style></head><body>"
-    "<h2>Stored Files</h2><a href='/playall' style='color:#0f0; border:1px solid #0f0;'>PLAY ALL</a><br><ul style='padding:10px;'>";
+  String html = "<!DOCTYPE html><html><head><style>body{font-family:sans-serif;background:#1a1a1a;color:#eee;padding:20px;}table{width:100%;border-collapse:collapse;}td,th{padding:12px;border-bottom:1px solid #333;text-align:left;}.btn{padding:6px 10px;border-radius:4px;text-decoration:none;font-weight:bold;font-size:12px;}.p{background:#0f0;color:#000;}.d{background:#f44;color:#fff;}</style></head><body>";
+  html += "<h2>Gallery</h2><table><tr><th>Name</th><th>Size</th><th>Action</th></tr>";
   File r = LittleFS.open("/");
   File file = r.openNextFile();
   while(file){
     String fn = String(file.name());
-    html += "<li>" + fn + " <div><a href='/play?file=" + fn + "' style='background:#0f0; color:#000;'>Play</a> <a href='/delete?file=" + fn + "' style='background:#f00; color:#fff; margin-left:5px;'>Del</a></div></li>";
+    String sz = String(file.size()/1024) + "KB";
+    html += "<tr><td>" + fn + "</td><td>" + sz + "</td><td><a href='/play?file=" + fn + "' class='btn p'>Play</a>";
+    html += " <a href='#' onclick='del(\""+fn+"\")' class='btn d'>X</a></td></tr>";
     file = r.openNextFile();
   }
-  html += "</ul><br><a href='/' style='color:#eee;'>Back</a></body></html>";
+  html += "</table><br><a href='/' style='color:#0f8;'>Back</a><script>function del(n){if(confirm('Delete '+n+'?'))fetch('/delete?file='+n).then(()=>location.reload());}</script></body></html>";
   server.send(200, "text/html", html);
 }
 
+/* --- ACTION HANDLERS --- */
 void handlePlay() { if (server.hasArg("file")) { uploadedFilePath = "/" + server.arg("file"); newFileUploaded = true; playAllMode = false; } server.sendHeader("Location", "/"); server.send(302); }
 void handlePlayAll() { playAllMode = true; playNextFile(); server.sendHeader("Location", "/"); server.send(302); }
 void handleBrightness() { if (server.hasArg("value")) { currentBrightness = server.arg("value").toInt(); dma_display->setBrightness8(currentBrightness); } server.send(200); }
-void handleDuration() { if (server.hasArg("value")) playbackDuration = server.arg("value").toInt() * 1000; server.send(200); }
-void handleDelete() { if (server.hasArg("file")) LittleFS.remove("/" + server.arg("file")); server.sendHeader("Location", "/list"); server.send(302); }
+void handleLoops() { if (server.hasArg("value")) { maxLoops = server.arg("value").toInt(); } server.send(200); }
+void handleDelete() { if (server.hasArg("file")) LittleFS.remove("/" + server.arg("file")); server.send(200); }
 
 void handleUpload() {
   HTTPUpload& upload = server.upload();
-  if (upload.status == UPLOAD_FILE_START) { 
-    dma_display->clearScreen(); 
-    f = LittleFS.open("/" + upload.filename, FILE_WRITE); 
-  }
-  else if (upload.status == UPLOAD_FILE_WRITE && f) {
-    f.write(upload.buf, upload.currentSize);
-    yield();
-  }
-  else if (upload.status == UPLOAD_FILE_END) { 
-    if (f) f.close(); 
-    uploadedFilePath = "/" + upload.filename; 
-    newFileUploaded = true; 
-    playAllMode = false; 
-  }
+  if (upload.status == UPLOAD_FILE_START) { dma_display->clearScreen(); f = LittleFS.open("/" + upload.filename, FILE_WRITE); }
+  else if (upload.status == UPLOAD_FILE_WRITE && f) { f.write(upload.buf, upload.currentSize); }
+  else if (upload.status == UPLOAD_FILE_END) { if (f) f.close(); uploadedFilePath = "/" + upload.filename; newFileUploaded = true; playAllMode = false; server.sendHeader("Location", "/list"); server.send(303); }
 }
 
 /* --- ARDUINO CORE --- */
@@ -199,21 +208,26 @@ void setup() {
   Serial.begin(115200);
   LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED);
   
+  prefs.begin("wifi", true);
+  String ssid = prefs.getString("ssid", "");
+  String pass = prefs.getString("pass", "");
+  prefs.end();
+
   WiFi.mode(WIFI_AP_STA);
-  IPAddress ip(192, 168, 42, 1);
-  WiFi.softAPConfig(ip, ip, IPAddress(255, 255, 255, 0));
   WiFi.softAP(ap_ssid, ap_password);
-  WiFi.begin(sta_ssid, sta_password);
+  if (ssid != "") WiFi.begin(ssid.c_str(), pass.c_str());
 
   server.on("/", handleRoot);
   server.on("/diag", handleDiag);
+  server.on("/setwifi", HTTP_POST, handleSetWiFi);
+  server.on("/reboot", handleReboot);
   server.on("/list", handleFileList);
   server.on("/play", handlePlay);
   server.on("/playall", handlePlayAll);
   server.on("/brightness", handleBrightness);
-  server.on("/duration", handleDuration);
+  server.on("/loops", handleLoops);
   server.on("/delete", handleDelete);
-  server.on("/upload", HTTP_POST, [](){ server.send(200); }, handleUpload);
+  server.on("/upload", HTTP_POST, [](){}, handleUpload);
   server.begin();
 
   HUB75_I2S_CFG mxconfig(PANEL_RES_X, PANEL_RES_Y, PANEL_CHAIN);
@@ -229,20 +243,18 @@ void setup() {
   dma_display->setBrightness8(currentBrightness);
   
   gif.begin(LITTLE_ENDIAN_PIXELS);
-  root = LittleFS.open("/");
   playNextFile(); 
 }
 
 void loop() {
   server.handleClient();
   if (newFileUploaded) { ShowGIF(uploadedFilePath.c_str()); newFileUploaded = false; }
-
   if (!currentPlayingFile.isEmpty()) {
-    bool framePlayed = gif.playFrame(true, NULL);
-    if (playAllMode && (millis() - lastPlaybackChange > playbackDuration)) {
-      playNextFile();
-    } else if (!playAllMode && !framePlayed) {
-      gif.reset(); 
+    int res = gif.playFrame(true, NULL);
+    if (res == 0) { 
+      loopCount++;
+      if (playAllMode && loopCount >= maxLoops) { playNextFile(); } 
+      else { gif.reset(); }
     }
   }
 }
